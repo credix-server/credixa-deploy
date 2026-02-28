@@ -920,6 +920,57 @@ body::before {
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+/* ══════════════════════════════════════════════════════
+   CREDIXA FIREBASE CONFIG
+   1. Go to https://console.firebase.google.com
+   2. Create project "credixa" → Add Web App
+   3. Copy your config values below
+   4. In Firestore → Rules, set:
+      allow read, write: if true;
+══════════════════════════════════════════════════════ */
+const FIREBASE_CONFIG = {
+  apiKey: "REPLACE_WITH_YOUR_API_KEY",
+  authDomain: "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
+  projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
+  storageBucket: "REPLACE_WITH_YOUR_PROJECT.appspot.com",
+  messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
+  appId: "REPLACE_WITH_YOUR_APP_ID"
+};
+
+const firebaseApp = initializeApp(FIREBASE_CONFIG);
+const db = getFirestore(firebaseApp);
+const CLOUD_DOC = doc(db, 'credixa', 'main');
+
+// Expose to global scope for non-module code
+window._db = db;
+window._cloudDoc = CLOUD_DOC;
+window._getDoc = getDoc;
+window._setDoc = setDoc;
+window._onSnapshot = onSnapshot;
+window._firebaseReady = true;
+
+// Start real-time listener — updates local cache when cloud changes
+onSnapshot(CLOUD_DOC, snap => {
+  if (snap.exists()) {
+    const cloudData = snap.data().payload;
+    if (cloudData) {
+      localStorage.setItem('credixa_v2', cloudData);
+      // If admin app is open, refresh the view
+      if (typeof renderDashboard === 'function' && document.getElementById('main-app')?.style.display !== 'none') {
+        renderDashboard();
+        renderUsers();
+        renderActivity();
+      }
+    }
+  }
+}, err => console.warn('Firestore listener error:', err));
+</script>
+
 <script>
 /* ══════════════════════════════════════
    CREDIXA ADMIN CMS — CORE DATA ENGINE
@@ -939,8 +990,32 @@ function defaultData() {
 }
 function saveData(d) {
   d.lastUpdate = Date.now();
-  localStorage.setItem(KEY, JSON.stringify(d));
+  const json = JSON.stringify(d);
+  localStorage.setItem(KEY, json);
+  // Push to cloud
+  if (window._firebaseReady) {
+    window._setDoc(window._cloudDoc, { payload: json, updatedAt: Date.now() })
+      .catch(e => console.warn('Cloud save failed:', e));
+  }
 }
+
+// Pull latest from cloud on page load
+async function syncFromCloud() {
+  if (!window._firebaseReady) return;
+  try {
+    const snap = await window._getDoc(window._cloudDoc);
+    if (snap.exists() && snap.data().payload) {
+      const cloudData = JSON.parse(snap.data().payload);
+      const localData = getData();
+      // Use whichever is newer
+      if ((cloudData.lastUpdate || 0) > (localData.lastUpdate || 0)) {
+        localStorage.setItem(KEY, snap.data().payload);
+      }
+    }
+  } catch(e) { console.warn('Cloud sync error:', e); }
+}
+// Sync on load
+setTimeout(syncFromCloud, 1500);
 
 // ── PIN INPUT BUILD ──
 let pinVals = Array(8).fill('');
