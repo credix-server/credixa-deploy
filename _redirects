@@ -1,0 +1,7 @@
+# Netlify Redirects — Credixa
+# Serve index.html for all non-file routes (SPA)
+/admin  /admin.html  200
+/app    /index.html  200
+
+# All other routes → index.html
+/*  /index.html  200
