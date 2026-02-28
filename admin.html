@@ -632,8 +632,8 @@ body::before {
     </div>
 
     <div class="sidebar-bottom">
-      <div style="text-align:center;margin-bottom:10px;">
-        <span id="adm-sync-ind" style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:0.5px;">● Konektando…</span>
+      <div style="text-align:center;margin-bottom:8px;">
+        <span id="adm-sync" style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:0.5px;transition:color 0.4s;">● Konektando…</span>
       </div>
       <div class="admin-pill">
         <div class="av" id="sb-initial">A</div>
@@ -923,70 +923,64 @@ body::before {
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<!-- ═══════════════════════════════════════════════════════
-     FIREBASE CONFIG — paste your values from Firebase Console
-     (must match the same config in index.html)
-════════════════════════════════════════════════════════ -->
+<!-- Firebase SDK -->
 <script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeApp }    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+                            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const FIREBASE_CONFIG = {
-  apiKey:            "REPLACE_WITH_YOUR_API_KEY",
-  authDomain:        "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
-  projectId:         "REPLACE_WITH_YOUR_PROJECT_ID",
-  storageBucket:     "REPLACE_WITH_YOUR_PROJECT.appspot.com",
-  messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
-  appId:             "REPLACE_WITH_YOUR_APP_ID"
+  apiKey:            "AIzaSyBzcXX1TKhGTPLYuqiZQwsfThR-8DGnpQE",
+  authDomain:        "credixacur.firebaseapp.com",
+  projectId:         "credixacur",
+  storageBucket:     "credixacur.firebasestorage.app",
+  messagingSenderId: "535173528579",
+  appId:             "1:535173528579:web:3d2a3d64b8078ad5f8e236"
 };
 
-const app = initializeApp(FIREBASE_CONFIG);
-const db  = getFirestore(app);
-const REF = doc(db, 'credixa', 'main');
+const _app = initializeApp(FIREBASE_CONFIG);
+const _db  = getFirestore(_app);
+const _REF = doc(_db, 'credixa', 'main');
 
 window._fbReady = false;
-window._fbRef   = REF;
+window._fbRef   = _REF;
 window._fbSet   = setDoc;
 window._fbGet   = getDoc;
 
-// Real-time listener — if users make changes, admin panel refreshes live
-onSnapshot(REF, snap => {
-  if (!snap.exists()) return;
+// Real-time listener — if user makes a transaction, admin panel updates live
+onSnapshot(_REF, snap => {
+  if (!snap.exists()) { _markReady(); return; }
   const raw = snap.data()?.payload;
-  if (!raw) return;
+  if (!raw) { _markReady(); return; }
   try {
     const cloudData = JSON.parse(raw);
     const localRaw  = localStorage.getItem('credixa_v2');
     const localData = localRaw ? JSON.parse(localRaw) : null;
     if (!localData || (cloudData.lastUpdate || 0) > (localData.lastUpdate || 0)) {
       localStorage.setItem('credixa_v2', raw);
-      // Refresh admin views if logged in
       if (document.getElementById('app')?.style.display !== 'none') {
         if (typeof renderDashboard === 'function') renderDashboard();
-        if (typeof renderUsers === 'function')     renderUsers();
-        if (typeof renderActivity === 'function')  renderActivity();
-        const ind = document.getElementById('adm-sync-ind');
-        if (ind) { ind.textContent = '● Sinku Live'; ind.style.color = 'var(--green)'; }
+        if (typeof renderUsers     === 'function') renderUsers();
+        if (typeof renderActivity  === 'function') renderActivity();
+        _setSyncInd('● Live', 'var(--cyan)');
       }
     }
   } catch(e) { console.warn('Snapshot error:', e); }
+  _markReady();
+}, err => { console.warn('Firebase error:', err); _markReady(); });
 
+function _markReady() {
   if (!window._fbReady) {
     window._fbReady = true;
     if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
   }
-}, err => {
-  console.warn('Firebase error:', err);
-  window._fbReady = true;
-  if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
-});
-
-setTimeout(() => {
-  if (!window._fbReady) {
-    window._fbReady = true;
-    if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
-  }
-}, 5000);
+}
+function _setSyncInd(txt, color) {
+  const el = document.getElementById('adm-sync');
+  if (el) { el.textContent = txt; el.style.color = color; }
+}
+window._setSyncInd = _setSyncInd;
+setTimeout(() => _markReady(), 5000);
 </script>
 
 <script>
@@ -995,36 +989,24 @@ setTimeout(() => {
 ══════════════════════════════════════ */
 const KEY = 'credixa_v2';
 
-const fbReadyPromise = new Promise(resolve => { window._fbReadyResolve = resolve; });
+const fbReadyPromise = new Promise(res => { window._fbReadyResolve = res; });
 
 function getData() {
   try { return JSON.parse(localStorage.getItem(KEY)) || defaultData(); }
   catch { return defaultData(); }
 }
 function defaultData() {
-  return {
-    admin: { username: 'admin', pin: '87654321' },
-    users: [],
-    activity: [],
-    lastUpdate: Date.now()
-  };
+  return { admin: { username: 'admin', pin: '87654321' }, users: [], activity: [], lastUpdate: Date.now() };
 }
 function saveData(d) {
   d.lastUpdate = Date.now();
   const json = JSON.stringify(d);
   localStorage.setItem(KEY, json);
-  // Push to Firebase — users see changes immediately via their onSnapshot listener
+  // Push to Firebase — user apps update automatically via their onSnapshot
   if (window._fbRef && window._fbSet) {
     window._fbSet(window._fbRef, { payload: json, updatedAt: Date.now() })
-      .then(() => {
-        const ind = document.getElementById('adm-sync-ind');
-        if (ind) { ind.textContent = '✓ Guardá na Nube'; ind.style.color = 'var(--green)'; }
-      })
-      .catch(e => {
-        console.warn('Cloud save failed:', e);
-        const ind = document.getElementById('adm-sync-ind');
-        if (ind) { ind.textContent = '⚠ Sin Koneksjon'; ind.style.color = 'var(--amber)'; }
-      });
+      .then(() => { if (window._setSyncInd) window._setSyncInd('✓ Guardá', 'var(--green)'); })
+      .catch(e  => { console.warn('Cloud save failed:', e); if (window._setSyncInd) window._setSyncInd('⚠ Sin koneksjon', 'var(--amber)'); });
   }
 }
 
@@ -1056,12 +1038,12 @@ document.getElementById('adm-user').addEventListener('keydown', e => {
 
 // ── LOGIN ──
 async function adminLogin() {
-  // Pull latest from cloud first (in case credentials were changed)
+  // Always pull fresh from cloud before checking — ensures we have latest users/admin pin
   if (window._fbRef && window._fbGet) {
     try {
       const snap = await window._fbGet(window._fbRef);
       if (snap.exists() && snap.data()?.payload) {
-        const cloudRaw = snap.data().payload;
+        const cloudRaw  = snap.data().payload;
         const cloudData = JSON.parse(cloudRaw);
         const localData = getData();
         if ((cloudData.lastUpdate || 0) >= (localData.lastUpdate || 0)) {
@@ -1080,10 +1062,9 @@ async function adminLogin() {
     document.getElementById('app').style.display = 'block';
     document.getElementById('sb-name').textContent = u;
     document.getElementById('sb-initial').textContent = u[0].toUpperCase();
+    if (window._setSyncInd) window._setSyncInd('● Live', 'var(--cyan)');
     initApp();
     logAct('Admin "' + u + '" signed in to CMS', 'g');
-    const ind = document.getElementById('adm-sync-ind');
-    if (ind) { ind.textContent = '● Sinku Live'; ind.style.color = 'var(--cyan)'; }
   } else {
     err.style.display = 'block';
     const cells = document.querySelectorAll('.pin-cell');

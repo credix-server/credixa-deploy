@@ -693,7 +693,7 @@ body::before {
       </div>
     </div>
     <div class="tb-right">
-    <span id="sync-indicator" style="font-size:9px;font-weight:700;color:var(--text3);letter-spacing:0.5px;align-self:center;margin-right:4px;">● Konektando…</span>
+    <span id="sync-ind" style="font-size:9px;font-weight:700;color:var(--text3);letter-spacing:0.5px;align-self:center;margin-right:2px;transition:color 0.4s;">● …</span>
       <button class="tb-btn" onclick="openSheet('sh-bt')" title="Printer">🖨</button>
       <button class="tb-btn" onclick="openSheet('sh-logout')" title="Sali">⏻</button>
     </div>
@@ -935,76 +935,55 @@ body::before {
 <div id="print-area" style="display:none;"></div>
 <div class="toast" id="toast"></div>
 
-<!-- ═══════════════════════════════════════════════════════
-     FIREBASE CONFIG — paste your values from Firebase Console
-     (must match the same config in admin.html)
-════════════════════════════════════════════════════════ -->
+<!-- Firebase SDK -->
 <script type="module">
-import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { initializeApp }    from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc, setDoc, onSnapshot }
+                            from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const FIREBASE_CONFIG = {
-  apiKey:            "REPLACE_WITH_YOUR_API_KEY",
-  authDomain:        "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
-  projectId:         "REPLACE_WITH_YOUR_PROJECT_ID",
-  storageBucket:     "REPLACE_WITH_YOUR_PROJECT.appspot.com",
-  messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
-  appId:             "REPLACE_WITH_YOUR_APP_ID"
+  apiKey:            "AIzaSyBzcXX1TKhGTPLYuqiZQwsfThR-8DGnpQE",
+  authDomain:        "credixacur.firebaseapp.com",
+  projectId:         "credixacur",
+  storageBucket:     "credixacur.firebasestorage.app",
+  messagingSenderId: "535173528579",
+  appId:             "1:535173528579:web:3d2a3d64b8078ad5f8e236"
 };
 
-const app = initializeApp(FIREBASE_CONFIG);
-const db  = getFirestore(app);
-const REF = doc(db, 'credixa', 'main');
+const _app = initializeApp(FIREBASE_CONFIG);
+const _db  = getFirestore(_app);
+const _REF = doc(_db, 'credixa', 'main');
 
-// Expose helpers for use in the main (non-module) script below
-window._fbReady  = false;
-window._fbRef    = REF;
-window._fbSet    = setDoc;
-window._fbGet    = getDoc;
+window._fbReady = false;
+window._fbRef   = _REF;
+window._fbSet   = setDoc;
+window._fbGet   = getDoc;
 
-// ── REAL-TIME LISTENER ──
-// Fires every time admin (or any device) saves data to Firebase.
-// Updates localStorage immediately so the user sees the latest state.
-onSnapshot(REF, snap => {
-  if (!snap.exists()) return;
+onSnapshot(_REF, snap => {
+  if (!snap.exists()) { _markReady(); return; }
   const raw = snap.data()?.payload;
-  if (!raw) return;
-
+  if (!raw) { _markReady(); return; }
   try {
     const cloudData = JSON.parse(raw);
     const localRaw  = localStorage.getItem('credixa_v2');
     const localData = localRaw ? JSON.parse(localRaw) : null;
-
-    // Always take the cloud copy if it is newer
     if (!localData || (cloudData.lastUpdate || 0) >= (localData.lastUpdate || 0)) {
       localStorage.setItem('credixa_v2', raw);
-
-      // If a user is already logged in, refresh their view silently
       if (window._cu && typeof window._onCloudUpdate === 'function') {
         window._onCloudUpdate();
       }
     }
-  } catch(e) { console.warn('Snapshot parse error', e); }
+  } catch(e) { console.warn('Snapshot error', e); }
+  _markReady();
+}, err => { console.warn('Firebase error:', err); _markReady(); });
 
-  // Mark firebase as ready & signal the login screen it can proceed
+function _markReady() {
   if (!window._fbReady) {
     window._fbReady = true;
     if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
   }
-}, err => {
-  console.warn('Firebase listener error:', err);
-  // Still mark ready so login is not blocked forever
-  window._fbReady = true;
-  if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
-});
-
-// Also resolve after 4 s max (offline / slow network fallback)
-setTimeout(() => {
-  if (!window._fbReady) {
-    window._fbReady = true;
-    if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
-  }
-}, 4000);
+}
+setTimeout(() => _markReady(), 5000);
 </script>
 
 <script>
@@ -1013,7 +992,6 @@ setTimeout(() => {
 ══════════════════════════════════════════ */
 const KEY = 'credixa_v2';
 
-// ── DATA LAYER ──
 const getData = () => {
   try { return JSON.parse(localStorage.getItem(KEY)) || {admin:{username:'admin',pin:'87654321'},users:[],activity:[],lastUpdate:0}; }
   catch { return {admin:{},users:[],activity:[],lastUpdate:0}; }
@@ -1023,36 +1001,29 @@ const saveData = d => {
   d.lastUpdate = Date.now();
   const json = JSON.stringify(d);
   localStorage.setItem(KEY, json);
-  // Push to Firebase cloud so admin sees it instantly
-  if (window._fbReady && window._fbRef) {
+  if (window._fbRef && window._fbSet) {
     window._fbSet(window._fbRef, { payload: json, updatedAt: Date.now() })
       .catch(e => console.warn('Cloud push failed:', e));
   }
 };
 
-// Promise that resolves when Firebase is ready (first snapshot received or timeout)
-const fbReadyPromise = new Promise(resolve => { window._fbReadyResolve = resolve; });
+const fbReadyPromise = new Promise(res => { window._fbReadyResolve = res; });
 
-// ── CLOUD UPDATE CALLBACK (called by onSnapshot while user is logged in) ──
 window._onCloudUpdate = () => {
-  // Refresh current user data and re-render silently
   if (!window._cu) return;
-  const d = getData();
+  const d     = getData();
   const fresh = d.users.find(x => x.id === window._cu.id);
-  if (fresh) {
-    window._cu = fresh;
-    cu = fresh;
-    if (typeof renderHome === 'function')    renderHome();
-    if (typeof renderClients === 'function') renderClients();
-    if (typeof renderReports === 'function') renderReports();
-    if (typeof renderProfile === 'function') renderProfile();
-    // Update sync indicator
-    const ind = document.getElementById('sync-indicator');
-    if (ind) { ind.textContent = '● Sinku'; ind.style.color = 'var(--green)'; }
-  }
+  if (!fresh) return;
+  window._cu = fresh; cu = fresh;
+  if (typeof renderHome    === 'function') renderHome();
+  if (typeof renderClients === 'function') renderClients();
+  if (typeof renderReports === 'function') renderReports();
+  if (typeof renderProfile === 'function') renderProfile();
+  const ind = document.getElementById('sync-ind');
+  if (ind) { ind.textContent = '● Sinku'; ind.style.color = 'var(--green)'; }
 };
 
-let cu = null; // current user
+let cu = null;
 window._cu = null;
 let selClientId = null;
 let editClientId = null;
@@ -1060,20 +1031,15 @@ let txType = null;
 let repPeriod = 'week';
 let btDevice = null, btChar = null;
 
-// ── SPLASH ──
-// Wait for Firebase to load cloud data, THEN show login screen
-// This ensures users created by admin are always available
+// Wait for Firebase cloud data BEFORE enabling login
 setTimeout(() => {
   document.getElementById('splash').classList.add('out');
   setTimeout(async () => {
     document.getElementById('splash').style.display = 'none';
-    // Show a "connecting…" state while waiting for cloud
     showScr('scr-login');
     buildNumpad();
-    // Wait for Firebase snapshot (max 4 s)
     await fbReadyPromise;
-    // Cloud data is now in localStorage — login is ready
-    const ind = document.getElementById('sync-indicator');
+    const ind = document.getElementById('sync-ind');
     if (ind) { ind.textContent = '● Online'; ind.style.color = 'var(--cyan)'; }
   }, 700);
 }, 2400);
@@ -1110,20 +1076,17 @@ function updateDots() {
 async function checkPin() {
   let d = getData();
   let u = d.users.find(x => x.pin === pinEntry && x.status === 'active');
-
-  // If not found locally, try fetching fresh from cloud right now
+  // Not found locally? Do a live cloud pull right now
   if (!u && window._fbRef && window._fbGet) {
     try {
       const snap = await window._fbGet(window._fbRef);
       if (snap.exists() && snap.data()?.payload) {
-        const cloudRaw = snap.data().payload;
-        localStorage.setItem(KEY, cloudRaw);
-        d = JSON.parse(cloudRaw);
+        localStorage.setItem(KEY, snap.data().payload);
+        d = getData();
         u = d.users.find(x => x.pin === pinEntry && x.status === 'active');
       }
-    } catch(e) { console.warn('Cloud fetch on login failed:', e); }
+    } catch(e) { console.warn('Live cloud fetch failed:', e); }
   }
-
   if (u) {
     cu = structuredClone(u);
     window._cu = cu;
@@ -1131,8 +1094,7 @@ async function checkPin() {
   } else {
     document.getElementById('pin-err-msg').textContent = '❌ Kódigo inkorrekt. Purba atrobe.';
     for (let i = 0; i < 6; i++) {
-      const el = document.getElementById('pd' + i);
-      el.className = 'pdot' + (i < pinEntry.length ? ' err' : '');
+      document.getElementById('pd' + i).className = 'pdot' + (i < pinEntry.length ? ' err' : '');
     }
     setTimeout(() => {
       pinEntry = ''; updateDots();
@@ -1156,7 +1118,6 @@ function showProfileConfirm(u) {
   showScr('scr-profile');
 }
 function confirmEnter() {
-  // refresh user data from latest cloud copy
   const d = getData();
   const fresh = d.users.find(u => u.id === cu.id);
   if (fresh) cu = structuredClone(fresh);
