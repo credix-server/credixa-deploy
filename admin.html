@@ -632,6 +632,9 @@ body::before {
     </div>
 
     <div class="sidebar-bottom">
+      <div style="text-align:center;margin-bottom:10px;">
+        <span id="adm-sync-ind" style="font-size:10px;font-weight:700;color:var(--text3);letter-spacing:0.5px;">● Konektando…</span>
+      </div>
       <div class="admin-pill">
         <div class="av" id="sb-initial">A</div>
         <div class="info">
@@ -920,56 +923,70 @@ body::before {
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<!-- Firebase SDK -->
+<!-- ═══════════════════════════════════════════════════════
+     FIREBASE CONFIG — paste your values from Firebase Console
+     (must match the same config in index.html)
+════════════════════════════════════════════════════════ -->
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
-/* ══════════════════════════════════════════════════════
-   CREDIXA FIREBASE CONFIG
-   1. Go to https://console.firebase.google.com
-   2. Create project "credixa" → Add Web App
-   3. Copy your config values below
-   4. In Firestore → Rules, set:
-      allow read, write: if true;
-══════════════════════════════════════════════════════ */
-const firebaseConfig = {
-  apiKey: "AIzaSyBzcXX1TKhGTPLYuqiZQwsfThR-8DGnpQE",
-  authDomain: "credixacur.firebaseapp.com",
-  projectId: "credixacur",
-  storageBucket: "credixacur.firebasestorage.app",
-  messagingSenderId: "535173528579",
-  appId: "1:535173528579:web:3d2a3d64b8078ad5f8e236",
-  measurementId: "G-J9CYKKL0K8"
+const FIREBASE_CONFIG = {
+  apiKey:            "REPLACE_WITH_YOUR_API_KEY",
+  authDomain:        "REPLACE_WITH_YOUR_PROJECT.firebaseapp.com",
+  projectId:         "REPLACE_WITH_YOUR_PROJECT_ID",
+  storageBucket:     "REPLACE_WITH_YOUR_PROJECT.appspot.com",
+  messagingSenderId: "REPLACE_WITH_YOUR_SENDER_ID",
+  appId:             "REPLACE_WITH_YOUR_APP_ID"
 };
 
-const firebaseApp = initializeApp(FIREBASE_CONFIG);
-const db = getFirestore(firebaseApp);
-const CLOUD_DOC = doc(db, 'credixa', 'main');
+const app = initializeApp(FIREBASE_CONFIG);
+const db  = getFirestore(app);
+const REF = doc(db, 'credixa', 'main');
 
-// Expose to global scope for non-module code
-window._db = db;
-window._cloudDoc = CLOUD_DOC;
-window._getDoc = getDoc;
-window._setDoc = setDoc;
-window._onSnapshot = onSnapshot;
-window._firebaseReady = true;
+window._fbReady = false;
+window._fbRef   = REF;
+window._fbSet   = setDoc;
+window._fbGet   = getDoc;
 
-// Start real-time listener — updates local cache when cloud changes
-onSnapshot(CLOUD_DOC, snap => {
-  if (snap.exists()) {
-    const cloudData = snap.data().payload;
-    if (cloudData) {
-      localStorage.setItem('credixa_v2', cloudData);
-      // If admin app is open, refresh the view
-      if (typeof renderDashboard === 'function' && document.getElementById('main-app')?.style.display !== 'none') {
-        renderDashboard();
-        renderUsers();
-        renderActivity();
+// Real-time listener — if users make changes, admin panel refreshes live
+onSnapshot(REF, snap => {
+  if (!snap.exists()) return;
+  const raw = snap.data()?.payload;
+  if (!raw) return;
+  try {
+    const cloudData = JSON.parse(raw);
+    const localRaw  = localStorage.getItem('credixa_v2');
+    const localData = localRaw ? JSON.parse(localRaw) : null;
+    if (!localData || (cloudData.lastUpdate || 0) > (localData.lastUpdate || 0)) {
+      localStorage.setItem('credixa_v2', raw);
+      // Refresh admin views if logged in
+      if (document.getElementById('app')?.style.display !== 'none') {
+        if (typeof renderDashboard === 'function') renderDashboard();
+        if (typeof renderUsers === 'function')     renderUsers();
+        if (typeof renderActivity === 'function')  renderActivity();
+        const ind = document.getElementById('adm-sync-ind');
+        if (ind) { ind.textContent = '● Sinku Live'; ind.style.color = 'var(--green)'; }
       }
     }
+  } catch(e) { console.warn('Snapshot error:', e); }
+
+  if (!window._fbReady) {
+    window._fbReady = true;
+    if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
   }
-}, err => console.warn('Firestore listener error:', err));
+}, err => {
+  console.warn('Firebase error:', err);
+  window._fbReady = true;
+  if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
+});
+
+setTimeout(() => {
+  if (!window._fbReady) {
+    window._fbReady = true;
+    if (typeof window._fbReadyResolve === 'function') window._fbReadyResolve();
+  }
+}, 5000);
 </script>
 
 <script>
@@ -977,6 +994,9 @@ onSnapshot(CLOUD_DOC, snap => {
    CREDIXA ADMIN CMS — CORE DATA ENGINE
 ══════════════════════════════════════ */
 const KEY = 'credixa_v2';
+
+const fbReadyPromise = new Promise(resolve => { window._fbReadyResolve = resolve; });
+
 function getData() {
   try { return JSON.parse(localStorage.getItem(KEY)) || defaultData(); }
   catch { return defaultData(); }
@@ -993,30 +1013,20 @@ function saveData(d) {
   d.lastUpdate = Date.now();
   const json = JSON.stringify(d);
   localStorage.setItem(KEY, json);
-  // Push to cloud
-  if (window._firebaseReady) {
-    window._setDoc(window._cloudDoc, { payload: json, updatedAt: Date.now() })
-      .catch(e => console.warn('Cloud save failed:', e));
+  // Push to Firebase — users see changes immediately via their onSnapshot listener
+  if (window._fbRef && window._fbSet) {
+    window._fbSet(window._fbRef, { payload: json, updatedAt: Date.now() })
+      .then(() => {
+        const ind = document.getElementById('adm-sync-ind');
+        if (ind) { ind.textContent = '✓ Guardá na Nube'; ind.style.color = 'var(--green)'; }
+      })
+      .catch(e => {
+        console.warn('Cloud save failed:', e);
+        const ind = document.getElementById('adm-sync-ind');
+        if (ind) { ind.textContent = '⚠ Sin Koneksjon'; ind.style.color = 'var(--amber)'; }
+      });
   }
 }
-
-// Pull latest from cloud on page load
-async function syncFromCloud() {
-  if (!window._firebaseReady) return;
-  try {
-    const snap = await window._getDoc(window._cloudDoc);
-    if (snap.exists() && snap.data().payload) {
-      const cloudData = JSON.parse(snap.data().payload);
-      const localData = getData();
-      // Use whichever is newer
-      if ((cloudData.lastUpdate || 0) > (localData.lastUpdate || 0)) {
-        localStorage.setItem(KEY, snap.data().payload);
-      }
-    }
-  } catch(e) { console.warn('Cloud sync error:', e); }
-}
-// Sync on load
-setTimeout(syncFromCloud, 1500);
 
 // ── PIN INPUT BUILD ──
 let pinVals = Array(8).fill('');
@@ -1045,7 +1055,22 @@ document.getElementById('adm-user').addEventListener('keydown', e => {
 });
 
 // ── LOGIN ──
-function adminLogin() {
+async function adminLogin() {
+  // Pull latest from cloud first (in case credentials were changed)
+  if (window._fbRef && window._fbGet) {
+    try {
+      const snap = await window._fbGet(window._fbRef);
+      if (snap.exists() && snap.data()?.payload) {
+        const cloudRaw = snap.data().payload;
+        const cloudData = JSON.parse(cloudRaw);
+        const localData = getData();
+        if ((cloudData.lastUpdate || 0) >= (localData.lastUpdate || 0)) {
+          localStorage.setItem(KEY, cloudRaw);
+        }
+      }
+    } catch(e) { console.warn('Pre-login cloud pull failed:', e); }
+  }
+
   const d = getData();
   const u = document.getElementById('adm-user').value.trim();
   const p = pinVals.join('');
@@ -1057,6 +1082,8 @@ function adminLogin() {
     document.getElementById('sb-initial').textContent = u[0].toUpperCase();
     initApp();
     logAct('Admin "' + u + '" signed in to CMS', 'g');
+    const ind = document.getElementById('adm-sync-ind');
+    if (ind) { ind.textContent = '● Sinku Live'; ind.style.color = 'var(--cyan)'; }
   } else {
     err.style.display = 'block';
     const cells = document.querySelectorAll('.pin-cell');
